@@ -4,10 +4,10 @@ import { supabase } from '../lib/supabase';
 
 interface ChatMessage {
   id: string;
-  userId: string;
+  user_id: string;
   username: string;
   message: string;
-  createdAt: string;
+  created_at: string;
 }
 
 export function useChat(roomId: string) {
@@ -40,7 +40,7 @@ export function useChat(roomId: string) {
 
     // Subscribe to chat messages on the room channel
     const channel = supabase
-      .channel(`room:${roomId}:chat`)
+      .channel(`room:${roomId}`)
       .on('broadcast', { event: 'chat' }, (payload) => {
         const newMessage = payload.payload as ChatMessage;
         setMessages((prev) => [...prev, newMessage]);

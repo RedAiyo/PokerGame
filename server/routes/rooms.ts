@@ -78,7 +78,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         time_limit: time_limit || 30,
         room_type: room_type || 'cash',
         is_private: is_private || false,
-        password: hashedPassword,
+        password_hash: hashedPassword,
         status: 'waiting',
       })
       .select()
@@ -132,9 +132,11 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const { seat_index, buy_in, password } = req.body;
+    const seatIndex = req.body.seat_index ?? req.body.seatIndex;
+    const buyIn = req.body.buy_in ?? req.body.buyIn;
+    const { password } = req.body;
 
-    if (seat_index === undefined || !buy_in) {
+    if (seatIndex === undefined || !buyIn) {
       res.status(400).json({ error: 'seat_index and buy_in are required' });
       return;
     }
@@ -157,7 +159,7 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
         res.status(403).json({ error: 'Password required for private room' });
         return;
       }
-      const valid = await bcrypt.compare(password, room.password);
+      const valid = await bcrypt.compare(password, room.password_hash ?? '');
       if (!valid) {
         res.status(403).json({ error: 'Invalid room password' });
         return;
@@ -165,7 +167,7 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
     }
 
     // Check buy-in bounds
-    if (buy_in < room.min_buy_in || buy_in > room.max_buy_in) {
+    if (buyIn < room.min_buy_in || buyIn > room.max_buy_in) {
       res.status(400).json({
         error: `Buy-in must be between ${room.min_buy_in} and ${room.max_buy_in}`,
       });
@@ -184,7 +186,7 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
     }
 
     const seatTaken = (existingPlayers || []).some(
-      (p: any) => p.seat_index === seat_index
+      (p: any) => p.seat_index === seatIndex
     );
     if (seatTaken) {
       res.status(400).json({ error: 'Seat is already taken' });
@@ -206,14 +208,14 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
       .eq('id', userId)
       .single();
 
-    if (!profile || profile.coins < buy_in) {
+    if (!profile || profile.coins < buyIn) {
       res.status(400).json({ error: 'Insufficient coins' });
       return;
     }
 
     const { error: deductError } = await supabaseAdmin
       .from('profiles')
-      .update({ coins: profile.coins - buy_in })
+      .update({ coins: profile.coins - buyIn })
       .eq('id', userId);
 
     if (deductError) {
@@ -227,8 +229,8 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
       .insert({
         room_id: id,
         user_id: userId,
-        seat_index,
-        chips: buy_in,
+        seat_index: seatIndex,
+        chips: buyIn,
       })
       .select()
       .single();

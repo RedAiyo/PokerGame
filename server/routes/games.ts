@@ -85,7 +85,6 @@ router.post('/:roomId/start', authMiddleware, async (req: Request, res: Response
         community_cards: gameState.communityCards,
         dealer_seat: gameState.dealerSeat,
         current_turn_seat: gameState.currentTurnSeat,
-        status: 'active',
       })
       .select()
       .single();
@@ -100,10 +99,9 @@ router.post('/:roomId/start', authMiddleware, async (req: Request, res: Response
     const gamePlayers = gameState.players.map((p) => ({
       game_id: gameState.id,
       user_id: p.userId,
-      seat_index: p.seatIndex,
-      chips_start: p.chips + p.currentBet, // chips before blinds were posted
-      chips_end: null,
+      hole_cards: p.holeCards,
       status: p.status,
+      current_bet: p.currentBet,
     }));
 
     await supabaseAdmin.from('game_players').insert(gamePlayers);
@@ -187,7 +185,7 @@ router.post('/:gameId/action', authMiddleware, async (req: Request, res: Respons
         // Update game status
         await supabaseAdmin
           .from('games')
-          .update({ status: 'completed', phase: 'complete' })
+          .update({ phase: 'complete' })
           .eq('id', gameId);
 
         // Update game_players with final chips and status
@@ -195,7 +193,8 @@ router.post('/:gameId/action', authMiddleware, async (req: Request, res: Respons
           await supabaseAdmin
             .from('game_players')
             .update({
-              chips_end: player.chips,
+              hole_cards: player.holeCards,
+              current_bet: player.currentBet,
               status: player.status,
             })
             .eq('game_id', gameId)
@@ -224,6 +223,24 @@ router.post('/:gameId/action', authMiddleware, async (req: Request, res: Respons
     res.json({ result, state: playerState });
   } catch (err) {
     res.status(500).json({ error: 'Failed to process action' });
+  }
+});
+
+// GET /room/:roomId/state - get current game state by room
+router.get('/room/:roomId/state', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { roomId } = req.params;
+
+    const state = gameManager.getStateForPlayer(roomId, userId);
+    if (!state) {
+      res.status(404).json({ error: 'No active game found' });
+      return;
+    }
+
+    res.json(state);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get game state' });
   }
 });
 

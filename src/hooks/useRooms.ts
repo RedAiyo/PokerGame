@@ -54,7 +54,7 @@ export function useRooms() {
 
   const joinRoom = useCallback(
     async (roomId: string, seatIndex: number, buyIn: number, password?: string) => {
-      return api.post(`/rooms/${roomId}/join`, { seatIndex, buyIn, password });
+      return api.post(`/rooms/${roomId}/join`, { seat_index: seatIndex, buy_in: buyIn, password });
     },
     []
   );

@@ -15,7 +15,7 @@ interface Player {
   holeCards?: string[];
 }
 
-interface GameState {
+interface UiGameState {
   id: string;
   roomId: string;
   status: string;
@@ -32,9 +32,73 @@ interface GameState {
   holeCards?: string[];
 }
 
+interface ServerCard {
+  rank: string;
+  suit: string;
+}
+
+interface ServerPlayer {
+  userId: string;
+  seatIndex: number;
+  chips: number;
+  currentBet: number;
+  status: 'active' | 'folded' | 'all_in';
+  holeCards: ServerCard[];
+}
+
+interface ServerGameState {
+  id: string;
+  roomId: string;
+  phase: string;
+  pot: number;
+  communityCards: ServerCard[];
+  players: ServerPlayer[];
+  currentTurnSeat: number;
+  dealerSeat: number;
+}
+
+function toCardString(card: ServerCard): string {
+  const suitMap: Record<string, string> = {
+    hearts: 'h',
+    diamonds: 'd',
+    clubs: 'c',
+    spades: 's',
+  };
+  return `${card.rank}${suitMap[card.suit] ?? card.suit}`;
+}
+
+function normalizeGameState(serverState: ServerGameState): UiGameState {
+  const players: Player[] = serverState.players.map((player) => ({
+    id: player.userId,
+    username: `玩家${player.seatIndex}`,
+    seatIndex: player.seatIndex,
+    chips: player.chips,
+    bet: player.currentBet,
+    folded: player.status === 'folded',
+    isDealer: player.seatIndex === serverState.dealerSeat,
+    isCurrentTurn: player.seatIndex === serverState.currentTurnSeat,
+    holeCards: player.holeCards?.map(toCardString) ?? [],
+  }));
+
+  return {
+    id: serverState.id,
+    roomId: serverState.roomId,
+    status: serverState.phase === 'complete' ? 'completed' : 'active',
+    phase: serverState.phase,
+    pot: serverState.pot,
+    communityCards: serverState.communityCards.map(toCardString),
+    players,
+    currentBet: Math.max(0, ...players.map((player) => player.bet)),
+    currentPlayerIndex: players.findIndex((player) => player.isCurrentTurn),
+    dealerIndex: players.findIndex((player) => player.isDealer),
+    smallBlindIndex: -1,
+    bigBlindIndex: -1,
+  };
+}
+
 export function useGame(roomId: string) {
   const { user } = useAuth();
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [gameState, setGameState] = useState<UiGameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,8 +121,8 @@ export function useGame(roomId: string) {
       try {
         setLoading(true);
         setError(null);
-        const data = await api.get<GameState>(`/games/${roomId}`);
-        setGameState(data);
+        const data = await api.get<ServerGameState>(`/games/room/${roomId}/state`);
+        setGameState(normalizeGameState(data));
       } catch (err: any) {
         // No active game is not necessarily an error
         if (!err.message?.includes('not found')) {
@@ -77,16 +141,17 @@ export function useGame(roomId: string) {
       .channel(`room:${roomId}`)
       .on('broadcast', { event: 'game_state' }, (payload) => {
         setGameState((prev) => {
-          const newState = payload.payload as GameState;
+          const newState = payload.payload as ServerGameState;
+          const normalizedState = normalizeGameState(newState);
           // Preserve hole cards from private channel
-          if (prev?.holeCards && !newState.holeCards) {
-            return { ...newState, holeCards: prev.holeCards };
+          if (prev?.holeCards && !normalizedState.holeCards) {
+            return { ...normalizedState, holeCards: prev.holeCards };
           }
-          return newState;
+          return normalizedState;
         });
       })
       .on('broadcast', { event: 'game_over' }, (payload) => {
-        setGameState(payload.payload as GameState);
+        setGameState(normalizeGameState(payload.payload as ServerGameState));
       })
       .subscribe();
 
@@ -97,10 +162,10 @@ export function useGame(roomId: string) {
       privateChannel = supabase
         .channel(`room:${roomId}:private:${user.id}`)
         .on('broadcast', { event: 'hole_cards' }, (payload) => {
-          const { cards } = payload.payload as { cards: string[] };
+          const { holeCards } = payload.payload as { holeCards: ServerCard[] };
           setGameState((prev) => {
             if (!prev) return prev;
-            return { ...prev, holeCards: cards };
+            return { ...prev, holeCards: (holeCards ?? []).map(toCardString) };
           });
         })
         .subscribe();
