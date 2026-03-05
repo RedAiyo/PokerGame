@@ -13,6 +13,7 @@ export type PlayerStatus = 'active' | 'folded' | 'all_in';
 
 export interface GamePlayer {
   userId: string;
+  username?: string;
   seatIndex: number;
   chips: number;
   holeCards: Card[];

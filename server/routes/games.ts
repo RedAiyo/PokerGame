@@ -34,7 +34,7 @@ router.post('/:roomId/start', authMiddleware, async (req: Request, res: Response
     // Verify user is in the room
     const { data: roomPlayers, error: playersError } = await supabaseAdmin
       .from('room_players')
-      .select('*')
+      .select('*, profiles(username)')
       .eq('room_id', roomId);
 
     if (playersError) {
@@ -61,6 +61,7 @@ router.post('/:roomId/start', authMiddleware, async (req: Request, res: Response
     // Convert room_players to GamePlayer[] format
     const players: GamePlayer[] = (roomPlayers || []).map((p: any) => ({
       userId: p.user_id,
+      username: p.profiles?.username ?? undefined,
       seatIndex: p.seat_index,
       chips: p.chips,
       holeCards: [],

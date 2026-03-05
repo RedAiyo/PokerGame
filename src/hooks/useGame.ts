@@ -39,6 +39,7 @@ interface ServerCard {
 
 interface ServerPlayer {
   userId: string;
+  username?: string;
   seatIndex: number;
   chips: number;
   currentBet: number;
@@ -70,7 +71,7 @@ function toCardString(card: ServerCard): string {
 function normalizeGameState(serverState: ServerGameState): UiGameState {
   const players: Player[] = serverState.players.map((player) => ({
     id: player.userId,
-    username: `玩家${player.seatIndex}`,
+    username: player.username ?? `玩家${player.seatIndex}`,
     seatIndex: player.seatIndex,
     chips: player.chips,
     bet: player.currentBet,
