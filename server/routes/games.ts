@@ -71,7 +71,10 @@ router.post('/:roomId/start', authMiddleware, async (req: Request, res: Response
     }));
 
     // Create game
-    const machine = gameManager.createGame(roomId, players);
+    const machine = gameManager.createGame(roomId, players, {
+      smallBlind: room.small_blind,
+      bigBlind: room.big_blind,
+    });
     const gameState = machine.state;
 
     // Insert game record into games table
@@ -163,6 +166,8 @@ router.post('/:gameId/action', authMiddleware, async (req: Request, res: Respons
 
     // Get updated game state
     const machine = gameManager.getGame(roomId);
+    let playerState = gameManager.getStateForPlayer(roomId, userId);
+
     if (machine) {
       const gameState = machine.state;
 
@@ -215,12 +220,16 @@ router.post('/:gameId/action', authMiddleware, async (req: Request, res: Respons
           .update({ status: 'waiting' })
           .eq('id', roomId);
 
+        // Preserve the final state for the acting player before the in-memory game is cleaned up.
+        playerState = machine.getStateForPlayer(userId);
+
         // Clean up game manager
         gameManager.removeGame(roomId);
+      } else {
+        playerState = machine.getStateForPlayer(userId);
       }
     }
 
-    const playerState = gameManager.getStateForPlayer(roomId, userId);
     res.json({ result, state: playerState });
   } catch (err) {
     res.status(500).json({ error: 'Failed to process action' });

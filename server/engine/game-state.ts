@@ -6,18 +6,24 @@ import type {
 import { createDeck, shuffleDeck, dealCards } from './deck.js';
 import { evaluateHand, compareHands } from './hand-evaluator.js';
 import { calculatePots } from './pot-calculator.js';
+import type { GameConfig } from './game-manager.js';
 
-const BIG_BLIND = 20;
-const SMALL_BLIND = 10;
+const DEFAULT_BIG_BLIND = 20;
+const DEFAULT_SMALL_BLIND = 10;
 
 export class GameStateMachine {
   public state: GameState;
 
-  constructor(roomId: string) {
+  constructor(roomId: string, config: GameConfig = {}) {
+    const smallBlind = config.smallBlind ?? DEFAULT_SMALL_BLIND;
+    const bigBlind = config.bigBlind ?? DEFAULT_BIG_BLIND;
+
     this.state = {
       id: crypto.randomUUID(),
       roomId,
       handNumber: 0,
+      smallBlind,
+      bigBlind,
       phase: 'waiting',
       players: [],
       communityCards: [],
@@ -25,8 +31,8 @@ export class GameStateMachine {
       sidePots: [],
       dealerSeat: 0,
       currentTurnSeat: -1,
-      lastRaise: BIG_BLIND,
-      minRaise: BIG_BLIND,
+      lastRaise: bigBlind,
+      minRaise: bigBlind,
       deck: [],
     };
   }
@@ -44,8 +50,8 @@ export class GameStateMachine {
     this.state.communityCards = [];
     this.state.pot = 0;
     this.state.sidePots = [];
-    this.state.lastRaise = BIG_BLIND;
-    this.state.minRaise = BIG_BLIND;
+    this.state.lastRaise = this.state.bigBlind;
+    this.state.minRaise = this.state.bigBlind;
 
     // Reset players
     this.state.players = players.map(p => ({
@@ -82,8 +88,8 @@ export class GameStateMachine {
       const bbSeat = this.findNextOccupiedSeat(this.state.dealerSeat);
       const bbPlayer = this.getPlayerBySeat(bbSeat)!;
 
-      this.postBlind(sbPlayer, SMALL_BLIND);
-      this.postBlind(bbPlayer, BIG_BLIND);
+      this.postBlind(sbPlayer, this.state.smallBlind);
+      this.postBlind(bbPlayer, this.state.bigBlind);
 
       // In heads-up, dealer (SB) acts first preflop
       this.state.currentTurnSeat = this.state.dealerSeat;
@@ -94,8 +100,8 @@ export class GameStateMachine {
       const sbPlayer = this.getPlayerBySeat(sbSeat)!;
       const bbPlayer = this.getPlayerBySeat(bbSeat)!;
 
-      this.postBlind(sbPlayer, SMALL_BLIND);
-      this.postBlind(bbPlayer, BIG_BLIND);
+      this.postBlind(sbPlayer, this.state.smallBlind);
+      this.postBlind(bbPlayer, this.state.bigBlind);
 
       // First to act preflop is after BB (UTG)
       this.state.currentTurnSeat = this.findNextOccupiedSeat(bbSeat);
@@ -307,8 +313,8 @@ export class GameStateMachine {
         p.hasActed = false;
       }
     }
-    this.state.lastRaise = BIG_BLIND;
-    this.state.minRaise = BIG_BLIND;
+    this.state.lastRaise = this.state.bigBlind;
+    this.state.minRaise = this.state.bigBlind;
 
     // Deal community cards
     switch (nextPhase) {

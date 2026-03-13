@@ -28,6 +28,9 @@ interface UiGameState {
   dealerIndex: number;
   smallBlindIndex: number;
   bigBlindIndex: number;
+  smallBlind: number;
+  bigBlind: number;
+  minRaise: number;
   winners?: any[];
   holeCards?: string[];
 }
@@ -56,6 +59,19 @@ interface ServerGameState {
   players: ServerPlayer[];
   currentTurnSeat: number;
   dealerSeat: number;
+  smallBlind: number;
+  bigBlind: number;
+  minRaise: number;
+}
+
+interface StartGameResponse {
+  game: unknown;
+  state: ServerGameState;
+}
+
+interface ActionResponse {
+  result: unknown;
+  state: ServerGameState | null;
 }
 
 function toCardString(card: ServerCard): string {
@@ -68,10 +84,20 @@ function toCardString(card: ServerCard): string {
   return `${card.rank}${suitMap[card.suit] ?? card.suit}`;
 }
 
-function normalizeGameState(serverState: ServerGameState): UiGameState {
+function getNextOccupiedSeat(players: ServerPlayer[], currentSeat: number): number {
+  const seats = players.map((player) => player.seatIndex).sort((a, b) => a - b);
+  for (const seat of seats) {
+    if (seat > currentSeat) {
+      return seat;
+    }
+  }
+  return seats[0] ?? -1;
+}
+
+function normalizeGameState(serverState: ServerGameState, currentUserId?: string): UiGameState {
   const players: Player[] = serverState.players.map((player) => ({
     id: player.userId,
-    username: player.username ?? `玩家${player.seatIndex}`,
+    username: player.username ?? `Player ${player.seatIndex}`,
     seatIndex: player.seatIndex,
     chips: player.chips,
     bet: player.currentBet,
@@ -80,6 +106,11 @@ function normalizeGameState(serverState: ServerGameState): UiGameState {
     isCurrentTurn: player.seatIndex === serverState.currentTurnSeat,
     holeCards: player.holeCards?.map(toCardString) ?? [],
   }));
+
+  const smallBlindSeat = players.length === 2
+    ? serverState.dealerSeat
+    : getNextOccupiedSeat(serverState.players, serverState.dealerSeat);
+  const bigBlindSeat = getNextOccupiedSeat(serverState.players, smallBlindSeat);
 
   return {
     id: serverState.id,
@@ -92,8 +123,14 @@ function normalizeGameState(serverState: ServerGameState): UiGameState {
     currentBet: Math.max(0, ...players.map((player) => player.bet)),
     currentPlayerIndex: players.findIndex((player) => player.isCurrentTurn),
     dealerIndex: players.findIndex((player) => player.isDealer),
-    smallBlindIndex: -1,
-    bigBlindIndex: -1,
+    smallBlindIndex: players.findIndex((player) => player.seatIndex === smallBlindSeat),
+    bigBlindIndex: players.findIndex((player) => player.seatIndex === bigBlindSeat),
+    smallBlind: serverState.smallBlind,
+    bigBlind: serverState.bigBlind,
+    minRaise: serverState.minRaise,
+    holeCards: currentUserId
+      ? players.find((player) => player.id === currentUserId)?.holeCards ?? []
+      : undefined,
   };
 }
 
@@ -104,28 +141,40 @@ export function useGame(roomId: string) {
   const [error, setError] = useState<string | null>(null);
 
   const startGame = useCallback(async (id: string) => {
-    return api.post(`/games/${id}/start`);
-  }, []);
+    const response = await api.post<StartGameResponse>(`/games/${id}/start`);
+    if (response.state) {
+      setGameState(normalizeGameState(response.state, user?.id));
+    }
+    return response;
+  }, [user?.id]);
 
   const sendAction = useCallback(
     async (gameId: string, action: string, amount?: number) => {
-      return api.post(`/games/${gameId}/action`, { action, amount });
+      const response = await api.post<ActionResponse>(`/games/${gameId}/action`, { action, amount });
+      if (response.state) {
+        setGameState((previousState) => {
+          const normalizedState = normalizeGameState(response.state as ServerGameState, user?.id);
+          if (previousState?.holeCards?.length && !normalizedState.holeCards?.length) {
+            return { ...normalizedState, holeCards: previousState.holeCards };
+          }
+          return normalizedState;
+        });
+      }
+      return response;
     },
-    []
+    [user?.id]
   );
 
   useEffect(() => {
     if (!roomId) return;
 
-    // Fetch initial game state
     const fetchGameState = async () => {
       try {
         setLoading(true);
         setError(null);
         const data = await api.get<ServerGameState>(`/games/room/${roomId}/state`);
-        setGameState(normalizeGameState(data));
+        setGameState(normalizeGameState(data, user?.id));
       } catch (err: any) {
-        // No active game is not necessarily an error
         if (!err.message?.includes('not found')) {
           setError(err.message || 'Failed to fetch game state');
         }
@@ -135,28 +184,25 @@ export function useGame(roomId: string) {
       }
     };
 
-    fetchGameState();
+    void fetchGameState();
 
-    // Subscribe to public game state channel
     const gameChannel = supabase
       .channel(`room:${roomId}`)
       .on('broadcast', { event: 'game_state' }, (payload) => {
-        setGameState((prev) => {
+        setGameState((previousState) => {
           const newState = payload.payload as ServerGameState;
-          const normalizedState = normalizeGameState(newState);
-          // Preserve hole cards from private channel
-          if (prev?.holeCards && !normalizedState.holeCards) {
-            return { ...normalizedState, holeCards: prev.holeCards };
+          const normalizedState = normalizeGameState(newState, user?.id);
+          if (previousState?.holeCards?.length && !normalizedState.holeCards?.length) {
+            return { ...normalizedState, holeCards: previousState.holeCards };
           }
           return normalizedState;
         });
       })
       .on('broadcast', { event: 'game_over' }, (payload) => {
-        setGameState(normalizeGameState(payload.payload as ServerGameState));
+        setGameState(normalizeGameState(payload.payload as ServerGameState, user?.id));
       })
       .subscribe();
 
-    // Subscribe to private channel for hole cards
     let privateChannel: ReturnType<typeof supabase.channel> | null = null;
 
     if (user?.id) {
@@ -164,18 +210,26 @@ export function useGame(roomId: string) {
         .channel(`room:${roomId}:private:${user.id}`)
         .on('broadcast', { event: 'hole_cards' }, (payload) => {
           const { holeCards } = payload.payload as { holeCards: ServerCard[] };
-          setGameState((prev) => {
-            if (!prev) return prev;
-            return { ...prev, holeCards: (holeCards ?? []).map(toCardString) };
+          const mappedHoleCards = (holeCards ?? []).map(toCardString);
+
+          setGameState((previousState) => {
+            if (!previousState) return previousState;
+            return {
+              ...previousState,
+              holeCards: mappedHoleCards,
+              players: previousState.players.map((player) => (
+                player.id === user.id ? { ...player, holeCards: mappedHoleCards } : player
+              )),
+            };
           });
         })
         .subscribe();
     }
 
     return () => {
-      supabase.removeChannel(gameChannel);
+      void supabase.removeChannel(gameChannel);
       if (privateChannel) {
-        supabase.removeChannel(privateChannel);
+        void supabase.removeChannel(privateChannel);
       }
     };
   }, [roomId, user?.id]);

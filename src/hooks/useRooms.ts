@@ -2,10 +2,27 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
 
-interface Room {
+interface ServerRoom {
+  id: string;
+  name: string;
+  room_type?: string;
+  type?: string;
+  small_blind: number;
+  big_blind: number;
+  min_buy_in: number;
+  max_buy_in: number;
+  max_players: number;
+  player_count: number;
+  status: string;
+  is_private: boolean;
+  created_at: string;
+}
+
+export interface Room {
   id: string;
   name: string;
   type: string;
+  roomType: string;
   small_blind: number;
   big_blind: number;
   min_buy_in: number;
@@ -19,13 +36,24 @@ interface Room {
 
 interface CreateRoomData {
   name: string;
-  type?: string;
+  room_type?: string;
   small_blind?: number;
   big_blind?: number;
   min_buy_in?: number;
   max_buy_in?: number;
   max_players?: number;
+  time_limit?: number;
+  is_private?: boolean;
   password?: string;
+}
+
+function normalizeRoom(room: ServerRoom): Room {
+  const roomType = room.room_type ?? room.type ?? '\u65b0\u624b\u573a';
+  return {
+    ...room,
+    type: roomType,
+    roomType,
+  };
 }
 
 export function useRooms() {
@@ -38,8 +66,8 @@ export function useRooms() {
       setLoading(true);
       setError(null);
       const query = type ? `?type=${encodeURIComponent(type)}` : '';
-      const data = await api.get<Room[]>(`/rooms${query}`);
-      setRooms(data);
+      const data = await api.get<ServerRoom[]>(`/rooms${query}`);
+      setRooms((data || []).map(normalizeRoom));
     } catch (err: any) {
       setError(err.message || 'Failed to fetch rooms');
     } finally {
@@ -48,13 +76,17 @@ export function useRooms() {
   }, []);
 
   const createRoom = useCallback(async (data: CreateRoomData) => {
-    const room = await api.post<Room>('/rooms', data);
-    return room;
+    const room = await api.post<ServerRoom>('/rooms', data);
+    return normalizeRoom(room);
   }, []);
 
   const joinRoom = useCallback(
-    async (roomId: string, seatIndex: number, buyIn: number, password?: string) => {
-      return api.post(`/rooms/${roomId}/join`, { seat_index: seatIndex, buy_in: buyIn, password });
+    async (roomId: string, seatIndex: number | undefined, buyIn: number, password?: string) => {
+      const payload: Record<string, unknown> = { buy_in: buyIn, password };
+      if (seatIndex !== undefined) {
+        payload.seat_index = seatIndex;
+      }
+      return api.post(`/rooms/${roomId}/join`, payload);
     },
     []
   );
@@ -64,15 +96,15 @@ export function useRooms() {
   }, []);
 
   useEffect(() => {
-    fetchRooms();
+    void fetchRooms();
 
-    // Subscribe to lobby channel for real-time room updates
+    // Subscribe to lobby channel for real-time room updates.
     const channel = supabase
       .channel('lobby')
       .on('broadcast', { event: 'room_update' }, (payload) => {
-        const updatedRoom = payload.payload as Room;
+        const updatedRoom = normalizeRoom(payload.payload as ServerRoom);
         setRooms((prev) => {
-          const index = prev.findIndex((r) => r.id === updatedRoom.id);
+          const index = prev.findIndex((room) => room.id === updatedRoom.id);
           if (index >= 0) {
             const next = [...prev];
             next[index] = updatedRoom;
@@ -81,18 +113,10 @@ export function useRooms() {
           return [...prev, updatedRoom];
         });
       })
-      .on('broadcast', { event: 'room_created' }, (payload) => {
-        const newRoom = payload.payload as Room;
-        setRooms((prev) => [...prev, newRoom]);
-      })
-      .on('broadcast', { event: 'room_deleted' }, (payload) => {
-        const { id } = payload.payload as { id: string };
-        setRooms((prev) => prev.filter((r) => r.id !== id));
-      })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [fetchRooms]);
 

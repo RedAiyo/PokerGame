@@ -10,7 +10,7 @@ interface Props {
 
 export default function CreateRoomModal({ onClose, onCreated }: Props) {
   const { profile } = useAuth();
-  const { createRoom } = useRooms();
+  const { createRoom, joinRoom } = useRooms();
   const [roomName, setRoomName] = useState(`${profile?.username || '玩家'} 的房间`);
   const [blinds, setBlinds] = useState('10/20');
   const [maxPlayers, setMaxPlayers] = useState(9);
@@ -43,6 +43,7 @@ export default function CreateRoomModal({ onClose, onCreated }: Props) {
         is_private: isPrivate,
         password: isPrivate ? password : undefined,
       } as any);
+      await joinRoom(room.id, undefined, room.min_buy_in, isPrivate ? password : undefined);
       onCreated(room.id);
     } catch (err: any) {
       setError(err.message || '创建房间失败');

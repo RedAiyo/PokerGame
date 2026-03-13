@@ -2,29 +2,25 @@ import { useState } from 'react';
 import { ChevronLeft, User, Settings as SettingsIcon, Monitor, Shield, HelpCircle, LogOut, RotateCcw, Check } from 'lucide-react';
 import EditProfileModal from './EditProfileModal';
 import { useAuth } from '../context/AuthContext';
-import { useSettings } from '../hooks/useSettings';
+import { useSettings, defaultSettings, type Settings as UserSettings } from '../hooks/useSettings';
+
+type ToggleSettingKey =
+  | 'autoRebuy'
+  | 'showHandStrength'
+  | 'allowSpectators'
+  | 'hapticFeedback'
+  | 'highFrameRate'
+  | 'hideOnlineStatus'
+  | 'rejectStrangerMessages'
+  | 'hideMatchHistory';
+
+type VolumeSettingKey = 'masterVolume' | 'sfxVolume' | 'musicVolume';
 
 export default function Settings({ setView }: { setView: (v: any) => void }) {
   const [activeTab, setActiveTab] = useState('game');
   const [showEditProfile, setShowEditProfile] = useState(false);
   const { profile, signOut } = useAuth();
-  const { settings, updateSettings } = useSettings();
-
-  // Game Preferences State - synced with backend
-  const [autoRebuy, setAutoRebuy] = useState(settings.autoMuck ?? true);
-  const [showHandStrength, setShowHandStrength] = useState(settings.showHandStrength ?? true);
-  const [allowSpectators, setAllowSpectators] = useState(false);
-  const [hapticFeedback, setHapticFeedback] = useState(true);
-
-  // Display State
-  const [highFrameRate, setHighFrameRate] = useState(true);
-
-  // Privacy State
-  const [hideOnlineStatus, setHideOnlineStatus] = useState(false);
-  const [rejectStrangerMessages, setRejectStrangerMessages] = useState(true);
-  const [hideMatchHistory, setHideMatchHistory] = useState(false);
-
-  // Help State
+  const { settings, updateSettings, loading } = useSettings();
   const [activeHelpSection, setActiveHelpSection] = useState<'rules' | 'about' | null>(null);
 
   const tabs = [
@@ -35,15 +31,29 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
     { id: 'help', icon: HelpCircle, label: '帮助' },
   ];
 
-  const Switch = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
-    <div 
+  const toggleSetting = (key: ToggleSettingKey) => {
+    void updateSettings({ [key]: !settings[key] } as Partial<UserSettings>);
+  };
+
+  const updateVolume = (key: VolumeSettingKey, value: number) => {
+    void updateSettings({ [key]: value } as Partial<UserSettings>);
+  };
+
+  const resetSettings = () => {
+    void updateSettings(defaultSettings);
+  };
+
+  const Switch = ({ checked, onChange, disabled = false }: { checked: boolean, onChange: () => void, disabled?: boolean }) => (
+    <button
+      type="button"
       onClick={onChange}
-      className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors duration-200 ${checked ? 'bg-blue-500' : 'bg-slate-600'}`}
+      disabled={disabled}
+      className={`w-12 h-6 rounded-full relative transition-colors duration-200 ${checked ? 'bg-blue-500' : 'bg-slate-600'} ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
     >
       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 flex items-center justify-center ${checked ? 'right-1 translate-x-0' : 'left-1 translate-x-0'}`}>
         {checked && <Check className="w-3 h-3 text-blue-500" />}
       </div>
-    </div>
+    </button>
   );
 
   return (
@@ -136,7 +146,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">自动补码</h3>
                       <p className="text-sm text-slate-400">筹码低于初始买入时自动补充</p>
                     </div>
-                    <Switch checked={autoRebuy} onChange={() => setAutoRebuy(!autoRebuy)} />
+                    <Switch checked={settings.autoRebuy} onChange={() => toggleSetting('autoRebuy')} disabled={loading} />
                   </div>
 
                   <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 flex items-center justify-between">
@@ -144,7 +154,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">显示牌力</h3>
                       <p className="text-sm text-slate-400">在游戏过程中提示当前手牌强度</p>
                     </div>
-                    <Switch checked={showHandStrength} onChange={() => setShowHandStrength(!showHandStrength)} />
+                    <Switch checked={settings.showHandStrength} onChange={() => toggleSetting('showHandStrength')} disabled={loading} />
                   </div>
 
                   <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 flex items-center justify-between">
@@ -152,7 +162,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">允许观众</h3>
                       <p className="text-sm text-slate-400">允许其他玩家旁观您的牌局</p>
                     </div>
-                    <Switch checked={allowSpectators} onChange={() => setAllowSpectators(!allowSpectators)} />
+                    <Switch checked={settings.allowSpectators} onChange={() => toggleSetting('allowSpectators')} disabled={loading} />
                   </div>
 
                   <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 flex items-center justify-between">
@@ -160,7 +170,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">振动反馈</h3>
                       <p className="text-sm text-slate-400">发牌、轮到操作时提供触觉反馈</p>
                     </div>
-                    <Switch checked={hapticFeedback} onChange={() => setHapticFeedback(!hapticFeedback)} />
+                    <Switch checked={settings.hapticFeedback} onChange={() => toggleSetting('hapticFeedback')} disabled={loading} />
                   </div>
                 </div>
               </div>
@@ -177,23 +187,23 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <div>
                         <div className="flex justify-between mb-2">
                           <span className="text-sm text-slate-300">主音量</span>
-                          <span className="text-sm text-slate-400">80%</span>
+                          <span className="text-sm text-slate-400">{settings.masterVolume}%</span>
                         </div>
-                        <input type="range" min="0" max="100" defaultValue="80" className="w-full accent-blue-500" />
+                        <input type="range" min="0" max="100" value={settings.masterVolume} onChange={(e) => updateVolume('masterVolume', Number(e.target.value))} className="w-full accent-blue-500" />
                       </div>
                       <div>
                         <div className="flex justify-between mb-2">
                           <span className="text-sm text-slate-300">游戏音效</span>
-                          <span className="text-sm text-slate-400">100%</span>
+                          <span className="text-sm text-slate-400">{settings.sfxVolume}%</span>
                         </div>
-                        <input type="range" min="0" max="100" defaultValue="100" className="w-full accent-blue-500" />
+                        <input type="range" min="0" max="100" value={settings.sfxVolume} onChange={(e) => updateVolume('sfxVolume', Number(e.target.value))} className="w-full accent-blue-500" />
                       </div>
                       <div>
                         <div className="flex justify-between mb-2">
                           <span className="text-sm text-slate-300">背景音乐</span>
-                          <span className="text-sm text-slate-400">30%</span>
+                          <span className="text-sm text-slate-400">{settings.musicVolume}%</span>
                         </div>
-                        <input type="range" min="0" max="100" defaultValue="30" className="w-full accent-blue-500" />
+                        <input type="range" min="0" max="100" value={settings.musicVolume} onChange={(e) => updateVolume('musicVolume', Number(e.target.value))} className="w-full accent-blue-500" />
                       </div>
                     </div>
                   </div>
@@ -202,7 +212,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">高帧率模式</h3>
                       <p className="text-sm text-slate-400">开启后游戏画面更流畅，但会增加耗电</p>
                     </div>
-                    <Switch checked={highFrameRate} onChange={() => setHighFrameRate(!highFrameRate)} />
+                    <Switch checked={settings.highFrameRate} onChange={() => toggleSetting('highFrameRate')} disabled={loading} />
                   </div>
                 </div>
               </div>
@@ -218,21 +228,21 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
                       <h3 className="text-lg font-medium mb-1">隐藏在线状态</h3>
                       <p className="text-sm text-slate-400">开启后其他玩家无法看到您是否在线</p>
                     </div>
-                    <Switch checked={hideOnlineStatus} onChange={() => setHideOnlineStatus(!hideOnlineStatus)} />
+                    <Switch checked={settings.hideOnlineStatus} onChange={() => toggleSetting('hideOnlineStatus')} disabled={loading} />
                   </div>
                   <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-medium mb-1">拒绝陌生人消息</h3>
                       <p className="text-sm text-slate-400">只接收好友发送的消息</p>
                     </div>
-                    <Switch checked={rejectStrangerMessages} onChange={() => setRejectStrangerMessages(!rejectStrangerMessages)} />
+                    <Switch checked={settings.rejectStrangerMessages} onChange={() => toggleSetting('rejectStrangerMessages')} disabled={loading} />
                   </div>
                   <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-medium mb-1">隐藏历史战绩</h3>
                       <p className="text-sm text-slate-400">其他玩家无法查看您的历史游戏记录</p>
                     </div>
-                    <Switch checked={hideMatchHistory} onChange={() => setHideMatchHistory(!hideMatchHistory)} />
+                    <Switch checked={settings.hideMatchHistory} onChange={() => toggleSetting('hideMatchHistory')} disabled={loading} />
                   </div>
                 </div>
               </div>
@@ -351,7 +361,7 @@ export default function Settings({ setView }: { setView: (v: any) => void }) {
             )}
 
             <div className="mt-8 flex justify-end">
-              <button className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+              <button onClick={resetSettings} disabled={loading} className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-60 transition-colors">
                 <RotateCcw className="w-4 h-4" />
                 <span>恢复默认设置</span>
               </button>

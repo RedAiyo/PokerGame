@@ -25,7 +25,10 @@ export default function GameTable({ setView, roomId }: GameTableProps) {
   const myBet = myPlayer?.bet || 0;
   const toCall = currentBet - myBet;
   const isMyTurn = myPlayer?.isCurrentTurn;
-  const minRaise = currentBet * 2 || (gameState as any)?.bigBlind || 20;
+  const minRaise = gameState?.minRaise ?? gameState?.bigBlind ?? 20;
+  const minRaiseTotal = currentBet > 0 ? currentBet + minRaise : minRaise;
+  const maxRaiseTotal = myPlayer ? myPlayer.chips + myBet : minRaiseTotal;
+  const canRaise = Boolean(isMyTurn && maxRaiseTotal >= minRaiseTotal);
 
   useEffect(() => {
     if (chatEndRef.current) {
@@ -34,8 +37,19 @@ export default function GameTable({ setView, roomId }: GameTableProps) {
   }, [messages]);
 
   useEffect(() => {
-    setRaiseAmount(minRaise);
-  }, [minRaise]);
+    setRaiseAmount((previousAmount) => {
+      if (maxRaiseTotal <= 0) {
+        return 0;
+      }
+      if (maxRaiseTotal < minRaiseTotal) {
+        return maxRaiseTotal;
+      }
+      if (previousAmount < minRaiseTotal || previousAmount > maxRaiseTotal) {
+        return minRaiseTotal;
+      }
+      return previousAmount;
+    });
+  }, [maxRaiseTotal, minRaiseTotal]);
 
   const handleFold = async () => {
     if (gameState?.id) await sendAction(gameState.id, 'fold');
@@ -52,7 +66,7 @@ export default function GameTable({ setView, roomId }: GameTableProps) {
   };
 
   const handleRaise = async () => {
-    if (gameState?.id) await sendAction(gameState.id, 'raise', raiseAmount);
+    if (gameState?.id && canRaise) await sendAction(gameState.id, 'raise', raiseAmount);
   };
 
   const handleStartGame = async () => {
@@ -280,11 +294,12 @@ export default function GameTable({ setView, roomId }: GameTableProps) {
               <span className="text-sm text-slate-300 whitespace-nowrap">加注至</span>
               <input
                 type="range"
-                min={minRaise}
-                max={myPlayer?.chips || 1000}
+                min={Math.min(minRaiseTotal, maxRaiseTotal)}
+                max={Math.max(minRaiseTotal, maxRaiseTotal)}
                 value={raiseAmount}
                 onChange={(e) => setRaiseAmount(Number(e.target.value))}
-                className="flex-1 accent-blue-500"
+                disabled={!canRaise}
+                className="flex-1 accent-blue-500 disabled:opacity-50"
               />
               <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 font-mono text-sm text-white">
                 ${raiseAmount}
@@ -308,7 +323,7 @@ export default function GameTable({ setView, roomId }: GameTableProps) {
               </button>
               <button
                 onClick={handleRaise}
-                disabled={!isMyTurn}
+                disabled={!canRaise}
                 className="px-8 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-medium text-lg transition-colors shadow-lg shadow-blue-900/20 flex flex-col items-center justify-center leading-tight"
               >
                 <span>加注</span>

@@ -33,8 +33,7 @@ export default function Lobby({ setView, onJoinRoom }: LobbyProps) {
   const handleJoinRoom = async (room: any) => {
     try {
       setJoining(room.id);
-      // Find first available seat (simple: use player_count as seat index)
-      await joinRoom(room.id, room.player_count || 0, room.min_buy_in);
+      await joinRoom(room.id, undefined, room.min_buy_in);
       onJoinRoom(room.id);
     } catch (err: any) {
       alert(err.message || '加入房间失败');

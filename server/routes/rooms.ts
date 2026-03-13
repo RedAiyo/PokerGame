@@ -2,8 +2,27 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../config/supabase.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { broadcastRoomUpdate } from '../realtime/broadcaster.js';
 
 const router = Router();
+
+function serializeRoomForLobby(room: Record<string, any>, playerCount: number) {
+  return {
+    ...room,
+    player_count: playerCount,
+    room_players: undefined,
+  };
+}
+
+function getFirstAvailableSeat(existingPlayers: any[], maxPlayers: number): number | null {
+  const occupiedSeats = new Set(existingPlayers.map((player) => player.seat_index));
+  for (let seatIndex = 0; seatIndex < maxPlayers; seatIndex += 1) {
+    if (!occupiedSeats.has(seatIndex)) {
+      return seatIndex;
+    }
+  }
+  return null;
+}
 
 // GET / - list rooms
 router.get('/', async (req: Request, res: Response) => {
@@ -26,14 +45,12 @@ router.get('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const rooms = (data || []).map((room: any) => ({
-      ...room,
-      player_count: room.room_players?.[0]?.count ?? 0,
-      room_players: undefined,
-    }));
+    const rooms = (data || []).map((room: any) =>
+      serializeRoomForLobby(room, room.room_players?.[0]?.count ?? 0)
+    );
 
     res.json(rooms);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch rooms' });
   }
 });
@@ -76,7 +93,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         max_buy_in: max_buy_in || 1000,
         max_players: max_players || 9,
         time_limit: time_limit || 30,
-        room_type: room_type || 'cash',
+        room_type: room_type || '\u65b0\u624b\u573a',
         is_private: is_private || false,
         password_hash: hashedPassword,
         status: 'waiting',
@@ -89,8 +106,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
+    await broadcastRoomUpdate(serializeRoomForLobby(data, 0));
     res.status(201).json(data);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to create room' });
   }
 });
@@ -122,7 +140,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     res.json({ ...room, players: players || [] });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch room' });
   }
 });
@@ -132,12 +150,15 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const seatIndex = req.body.seat_index ?? req.body.seatIndex;
-    const buyIn = req.body.buy_in ?? req.body.buyIn;
+    const requestedSeatIndex = req.body.seat_index ?? req.body.seatIndex;
+    const requestedBuyIn = req.body.buy_in ?? req.body.buyIn;
     const { password } = req.body;
 
-    if (seatIndex === undefined || !buyIn) {
-      res.status(400).json({ error: 'seat_index and buy_in are required' });
+    const buyIn = Number(requestedBuyIn);
+    const seatIndexFromRequest = requestedSeatIndex === undefined ? null : Number(requestedSeatIndex);
+
+    if (!Number.isFinite(buyIn) || buyIn <= 0) {
+      res.status(400).json({ error: 'buy_in is required' });
       return;
     }
 
@@ -174,34 +195,40 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
       return;
     }
 
-    // Check room is not full and seat is not taken
+    // Check room is not full and assign the first free seat when the client does not pick one.
     const { data: existingPlayers } = await supabaseAdmin
       .from('room_players')
       .select('*')
       .eq('room_id', id);
 
-    if ((existingPlayers || []).length >= room.max_players) {
+    const playersInRoom = existingPlayers || [];
+    if (playersInRoom.length >= room.max_players) {
       res.status(400).json({ error: 'Room is full' });
       return;
     }
 
-    const seatTaken = (existingPlayers || []).some(
-      (p: any) => p.seat_index === seatIndex
-    );
-    if (seatTaken) {
-      res.status(400).json({ error: 'Seat is already taken' });
-      return;
-    }
-
-    const alreadyInRoom = (existingPlayers || []).some(
-      (p: any) => p.user_id === userId
-    );
+    const alreadyInRoom = playersInRoom.some((player: any) => player.user_id === userId);
     if (alreadyInRoom) {
       res.status(400).json({ error: 'You are already in this room' });
       return;
     }
 
-    // Deduct buy_in from user's coins
+    const requestedSeatIsValid = Number.isInteger(seatIndexFromRequest)
+      && seatIndexFromRequest !== null
+      && seatIndexFromRequest >= 0
+      && seatIndexFromRequest < room.max_players
+      && !playersInRoom.some((player: any) => player.seat_index === seatIndexFromRequest);
+
+    const seatIndex = requestedSeatIsValid
+      ? seatIndexFromRequest
+      : getFirstAvailableSeat(playersInRoom, room.max_players);
+
+    if (seatIndex === null) {
+      res.status(400).json({ error: 'No available seats' });
+      return;
+    }
+
+    // Deduct buy-in from user's coins
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('coins')
@@ -245,8 +272,9 @@ router.post('/:id/join', authMiddleware, async (req: Request, res: Response) => 
       return;
     }
 
+    await broadcastRoomUpdate(serializeRoomForLobby(room, playersInRoom.length + 1));
     res.status(201).json(player);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to join room' });
   }
 });
@@ -296,8 +324,22 @@ router.post('/:id/leave', authMiddleware, async (req: Request, res: Response) =>
       return;
     }
 
+    const { data: room } = await supabaseAdmin
+      .from('rooms')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (room) {
+      const { count } = await supabaseAdmin
+        .from('room_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('room_id', id);
+      await broadcastRoomUpdate(serializeRoomForLobby(room, count ?? 0));
+    }
+
     res.json({ message: 'Left room successfully', chips_returned: player.chips });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to leave room' });
   }
 });

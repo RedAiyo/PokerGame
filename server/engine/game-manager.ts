@@ -3,6 +3,11 @@ import { GameStateMachine } from './game-state.js';
 
 const DEFAULT_TURN_TIMEOUT_MS = 30_000;
 
+export interface GameConfig {
+  smallBlind?: number;
+  bigBlind?: number;
+}
+
 export class GameManager {
   private games: Map<string, GameStateMachine> = new Map();
   private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -15,8 +20,8 @@ export class GameManager {
   /**
    * Create a new game for a room and start the first hand.
    */
-  createGame(roomId: string, players: GamePlayer[]): GameStateMachine {
-    const machine = new GameStateMachine(roomId);
+  createGame(roomId: string, players: GamePlayer[], config: GameConfig = {}): GameStateMachine {
+    const machine = new GameStateMachine(roomId, config);
     machine.startHand(players);
     this.games.set(roomId, machine);
 
@@ -56,7 +61,7 @@ export class GameManager {
     if (result.valid) {
       this.clearTimer(roomId);
 
-      // Set timer for next player if game is still in progress
+      // Set timer for next player if game is still in progress.
       if (game.state.phase !== 'complete' && game.state.phase !== 'showdown') {
         this.setTimer(roomId);
       }
@@ -84,12 +89,12 @@ export class GameManager {
     if (!game) return;
 
     const currentSeat = game.state.currentTurnSeat;
-    const currentPlayer = game.state.players.find(p => p.seatIndex === currentSeat);
+    const currentPlayer = game.state.players.find((player) => player.seatIndex === currentSeat);
     if (!currentPlayer || currentPlayer.status !== 'active') return;
 
     const timerKey = this.timerKey(roomId);
     const timer = setTimeout(() => {
-      // Auto-fold on timeout
+      // Auto-fold on timeout.
       this.handleAction(roomId, currentPlayer.userId, 'fold');
     }, this.turnTimeoutMs);
 

@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Texas Hold'em Poker
 
-# Run and deploy your AI Studio app
+A multiplayer Texas Hold'em poker project built with React, Vite, Express, and Supabase.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/7f035766-edd1-4919-ae46-bf1e6339e5f5
+- Supabase authentication and player profiles
+- Poker lobby with public and private rooms
+- Table view with betting actions, chat, and live game state updates
+- Server-side Texas Hold'em engine for dealing, betting rounds, and showdown resolution
+- Persistent room, game, chat, and user settings data in Supabase
 
-## Run Locally
+## Local development
 
-**Prerequisites:**  Node.js
+### Prerequisites
 
+- Node.js 20+
+- A Supabase project with the schema from `supabase/migrations/001_initial_schema.sql`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Environment variables
+
+Copy `.env.example` to `.env` and fill in:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+### Run the app
+
+```bash
+npm install
+npm run dev:all
+```
+
+This starts:
+
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:3001`
+
+## Available scripts
+
+- `npm run dev` - start the Vite frontend
+- `npm run server` - start the Express API with watch mode
+- `npm run dev:all` - run frontend and backend together
+- `npm run build` - create a production frontend build
+- `npm run lint` - type-check the project

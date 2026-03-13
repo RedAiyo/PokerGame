@@ -26,6 +26,8 @@ export interface GameState {
   id: string;
   roomId: string;
   handNumber: number;
+  smallBlind: number;
+  bigBlind: number;
   phase: Phase;
   players: GamePlayer[];
   communityCards: Card[];

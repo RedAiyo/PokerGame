@@ -5,18 +5,41 @@ import { authMiddleware } from '../middleware/auth.js';
 const router = Router();
 
 const DEFAULT_SETTINGS = {
-  sound_enabled: true,
-  music_enabled: true,
-  sound_volume: 0.7,
-  music_volume: 0.5,
-  notification_enabled: true,
-  auto_muck_losing_hand: true,
-  show_hand_strength: false,
-  four_color_deck: false,
-  table_theme: 'green',
-  card_back: 'classic',
-  language: 'en',
+  auto_rebuy: false,
+  show_hand_strength: true,
+  allow_spectators: true,
+  haptic_feedback: true,
+  master_volume: 80,
+  sfx_volume: 80,
+  music_volume: 50,
+  high_frame_rate: false,
+  hide_online_status: false,
+  reject_stranger_messages: false,
+  hide_match_history: false,
 };
+
+const ALLOWED_SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof typeof DEFAULT_SETTINGS>;
+
+function sanitizeSettings(input: Record<string, unknown>) {
+  const sanitized: Record<string, boolean | number> = {};
+
+  for (const key of ALLOWED_SETTING_KEYS) {
+    const value = input[key];
+    if (value === undefined) continue;
+
+    if (key.endsWith('_volume')) {
+      const numericValue = Number(value);
+      if (Number.isFinite(numericValue)) {
+        sanitized[key] = Math.max(0, Math.min(100, Math.round(numericValue)));
+      }
+      continue;
+    }
+
+    sanitized[key] = Boolean(value);
+  }
+
+  return sanitized as Partial<typeof DEFAULT_SETTINGS>;
+}
 
 // GET / - get user settings
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
@@ -29,28 +52,27 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       .eq('user_id', userId)
       .single();
 
-    if (error || !data) {
-      // Create default settings if not found
-      const { data: newSettings, error: insertError } = await supabaseAdmin
-        .from('user_settings')
-        .insert({
-          user_id: userId,
-          ...DEFAULT_SETTINGS,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        res.status(500).json({ error: insertError.message });
-        return;
-      }
-
-      res.json(newSettings);
+    if (!error && data) {
+      res.json(data);
       return;
     }
 
-    res.json(data);
-  } catch (err) {
+    const { data: newSettings, error: insertError } = await supabaseAdmin
+      .from('user_settings')
+      .insert({
+        user_id: userId,
+        ...DEFAULT_SETTINGS,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      res.status(500).json({ error: insertError.message });
+      return;
+    }
+
+    res.json(newSettings);
+  } catch {
     res.status(500).json({ error: 'Failed to fetch settings' });
   }
 });
@@ -59,19 +81,14 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 router.put('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const settings = req.body;
-
-    // Remove fields that should not be directly set
-    delete settings.id;
-    delete settings.user_id;
-    delete settings.created_at;
-    settings.updated_at = new Date().toISOString();
+    const settings = sanitizeSettings(req.body ?? {});
 
     const { data, error } = await supabaseAdmin
       .from('user_settings')
       .upsert(
         {
           user_id: userId,
+          ...DEFAULT_SETTINGS,
           ...settings,
         },
         { onConflict: 'user_id' }
@@ -85,7 +102,7 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     res.json(data);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to update settings' });
   }
 });
